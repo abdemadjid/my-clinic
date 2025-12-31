@@ -1,20 +1,29 @@
-// src/app/dashboard/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import VisitBoard from '@/src/components/visit-board';
 import VisitForm from '@/src/components/visit-form';
-import type { Visit } from '@/src/types';
+import PatientBoard from '@/src/components/patient-board'; // Changed from PatientList
+import PatientForm from '@/src/components/patient-form';
+import type { Visit, Patient } from '@/src/types';
 
 export default function DashboardPage() {
   const router = useRouter();
   const [visits, setVisits] = useState<Visit[]>([]);
+  const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showNotification, setShowNotification] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState('');
+  const [isPatientsView, setIsPatientsView] = useState(false);
+  const [patientsLoading, setPatientsLoading] = useState(false);
+  const [patientStats, setPatientStats] = useState({
+    total: 0,
+    newToday: 0,
+    hasVisits: 0
+  });
 
   const showToast = (message: string) => {
     setNotificationMessage(message);
@@ -24,6 +33,7 @@ export default function DashboardPage() {
 
   const loadVisits = async () => {
     try {
+      setLoading(true);
       const res = await fetch(`/api/visits?date=${selectedDate}`);
       if (res.status === 401) {
         router.push('/login');
@@ -33,16 +43,59 @@ export default function DashboardPage() {
       setVisits(data.visits || []);
     } catch (error) {
       console.error('Error loading visits:', error);
+      showToast('❌ Erreur lors du chargement des visites');
     } finally {
       setLoading(false);
     }
   };
 
+  const loadPatients = async () => {
+    try {
+      setPatientsLoading(true);
+      const res = await fetch('/api/patients');
+      if (res.status === 401) {
+        router.push('/login');
+        return;
+      }
+      const data = await res.json();
+      setPatients(data.patients || []);
+      
+      // Calculate patient statistics
+      if (data.patients) {
+        const today = new Date().toISOString().split('T')[0];
+        const newToday = data.patients.filter((p: Patient) => 
+          new Date(p.createdAt).toISOString().split('T')[0] === today
+        ).length;
+        
+        const hasVisits = data.patients.filter((p: any) => 
+          p.visitCount && p.visitCount > 0
+        ).length;
+        
+        setPatientStats({
+          total: data.patients.length,
+          newToday,
+          hasVisits
+        });
+      }
+    } catch (error) {
+      console.error('Error loading patients:', error);
+      showToast('❌ Erreur lors du chargement des patients');
+    } finally {
+      setPatientsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    loadVisits();
-    const interval = setInterval(loadVisits, 10000);
-    return () => clearInterval(interval);
-  }, [selectedDate]);
+    if (isPatientsView) {
+      loadPatients();
+      const interval = setInterval(loadPatients, 1500000);
+      return () => clearInterval(interval);
+    } else {
+      loadVisits();
+      const interval = setInterval(loadVisits, 1000000);
+      return () => clearInterval(interval);
+    }
+  }, [selectedDate, isPatientsView]);
 
   const handleLogout = async () => {
     await fetch('/api/auth', {
@@ -53,9 +106,19 @@ export default function DashboardPage() {
     router.push('/login');
   };
 
-  const handleExport = async () => {
-    window.open(`/api/export?date=${selectedDate}`, '_blank');
-    showToast('📥 Export en cours...');
+const handleExport = async () => {
+  const exportType = isPatientsView ? 'patients' : 'visits';
+  const url = isPatientsView 
+    ? `/api/export?type=patients`
+    : `/api/export?date=${selectedDate}&type=visits`;
+  
+  window.open(url, '_blank');
+  showToast(`📥 Export ${exportType} en cours...`);
+};
+
+  const handleViewToggle = () => {
+    setIsPatientsView(!isPatientsView);
+    showToast(isPatientsView ? '📋 Vue visites' : '👥 Vue patients');
   };
 
   const stats = {
@@ -67,25 +130,23 @@ export default function DashboardPage() {
 
   const completionRate = stats.total > 0 ? Math.round((stats.finished / stats.total) * 100) : 0;
 
-  if (loading) {
+  if (loading && !isPatientsView) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
         <div className="text-center">
-          {/* Animated Logo */}
-          <div className="relative w-32 h-32 mx-auto mb-8">
-            <div className="absolute inset-0 bg-white rounded-3xl animate-pulse"></div>
-            <div className="absolute inset-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center">
-              <svg className="w-16 h-16 text-white animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-              </svg>
-            </div>
-          </div>
-          <div className="flex items-center justify-center gap-2">
-            <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-            <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-            <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-          </div>
-          <p className="text-white font-semibold mt-4 text-lg">Chargement...</p>
+          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="mt-4 text-gray-600">Chargement des visites...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (patientsLoading && isPatientsView) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="mt-4 text-gray-600">Chargement des patients...</p>
         </div>
       </div>
     );
@@ -119,24 +180,57 @@ export default function DashboardPage() {
                   ClinicQueue
                 </h1>
                 <p className="text-sm text-gray-500 flex items-center gap-1">
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                  Tableau de bord en direct
+                  <span className={`w-2 h-2 rounded-full animate-pulse ${isPatientsView ? 'bg-green-500' : 'bg-blue-500'}`}></span>
+                  {isPatientsView ? 'Vue patients en direct' : 'Tableau de bord en direct'}
+                  {isPatientsView && ` • ${patientStats.total} patients`}
+                  {!isPatientsView && ` • ${visits.length} visites`}
                 </p>
               </div>
             </div>
 
             {/* Actions */}
             <div className="flex items-center gap-3">
-              {/* Date Picker */}
-              <div className="relative group">
-                <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-400 rounded-xl blur opacity-0 group-hover:opacity-75 transition-opacity"></div>
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="relative px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all hover:border-blue-300"
-                />
-              </div>
+              {/* View Toggle Button */}
+              <button
+                onClick={handleViewToggle}
+                className={`relative group px-4 py-2.5 rounded-xl font-medium overflow-hidden transition-all hover:shadow-lg hover:scale-105 ${
+                  isPatientsView 
+                    ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white' 
+                    : 'bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 border border-gray-300'
+                }`}
+              >
+                <span className="absolute inset-0 bg-white/20 transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left"></span>
+                <span className="relative flex items-center gap-2">
+                  {isPatientsView ? (
+                    <>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                      Vue visites
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5 0a4 4 0 11-8 0 4 4 0 018 0z" />
+                      </svg>
+                      Vue patients
+                    </>
+                  )}
+                </span>
+              </button>
+
+              {/* Date Picker - Only show for visits view */}
+              {!isPatientsView && (
+                <div className="relative group">
+                  <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-400 rounded-xl blur opacity-0 group-hover:opacity-75 transition-opacity"></div>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="relative px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all hover:border-blue-300"
+                  />
+                </div>
+              )}
 
               {/* Export Button */}
               <button
@@ -152,7 +246,7 @@ export default function DashboardPage() {
                 </span>
               </button>
 
-              {/* New Visit Button */}
+              {/* New Visit/Patient Button */}
               <button
                 onClick={() => setShowForm(true)}
                 className="relative group px-6 py-2.5 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 text-white rounded-xl font-semibold overflow-hidden transition-all hover:shadow-2xl hover:scale-105"
@@ -162,7 +256,7 @@ export default function DashboardPage() {
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                   </svg>
-                  Nouvelle Visite
+                  {isPatientsView ? 'Nouveau Patient' : 'Nouvelle Visite'}
                 </span>
               </button>
 
@@ -181,109 +275,154 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* Stats Cards */}
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {/* Total Card */}
-          <div className="group relative bg-gradient-to-br from-blue-500 to-blue-600 rounded-3xl p-6 shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500"></div>
-            <div className="relative">
-              <div className="flex items-center justify-between mb-4">
-                <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center group-hover:rotate-12 transition-transform">
-                  <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
+      {/* Conditional Rendering based on view */}
+      {isPatientsView ? (
+        /* Patients Overview Content */
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Patient Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl p-6 transform hover:scale-105 transition-all">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-500 text-sm">Patients totaux</p>
+                  <p className="text-3xl font-bold text-gray-800 mt-2">{patientStats.total}</p>
                 </div>
-                <div className="text-right">
-                  <p className="text-blue-100 text-sm font-medium">Total</p>
-                  <p className="text-4xl font-bold text-white">{stats.total}</p>
-                </div>
-              </div>
-              <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-                <div className="h-full bg-white rounded-full animate-pulse" style={{ width: '100%' }}></div>
-              </div>
-            </div>
-          </div>
-
-          {/* Waiting Card */}
-          <div className="group relative bg-gradient-to-br from-amber-500 to-orange-600 rounded-3xl p-6 shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500"></div>
-            <div className="relative">
-              <div className="flex items-center justify-between mb-4">
-                <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center group-hover:rotate-12 transition-transform">
-                  <svg className="w-7 h-7 text-white animate-spin-slow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <div className="text-right">
-                  <p className="text-orange-100 text-sm font-medium">En attente</p>
-                  <p className="text-4xl font-bold text-white">{stats.waiting}</p>
-                </div>
-              </div>
-              <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-                <div className="h-full bg-white rounded-full transition-all duration-500" style={{ width: `${stats.total > 0 ? (stats.waiting / stats.total) * 100 : 0}%` }}></div>
-              </div>
-            </div>
-          </div>
-
-          {/* In Room Card */}
-          <div className="group relative bg-gradient-to-br from-purple-500 to-pink-600 rounded-3xl p-6 shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500"></div>
-            <div className="relative">
-              <div className="flex items-center justify-between mb-4">
-                <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center group-hover:rotate-12 transition-transform">
-                  <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-14 h-14 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-2xl flex items-center justify-center">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                   </svg>
                 </div>
-                <div className="text-right">
-                  <p className="text-pink-100 text-sm font-medium">En consultation</p>
-                  <p className="text-4xl font-bold text-white">{stats.inRoom}</p>
+              </div>
+            </div>
+
+            <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl p-6 transform hover:scale-105 transition-all">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-500 text-sm">Nouveaux aujourd'hui</p>
+                  <p className="text-3xl font-bold text-green-600 mt-2">+{patientStats.newToday}</p>
+                </div>
+                <div className="w-14 h-14 bg-gradient-to-r from-green-500 to-emerald-500 rounded-2xl flex items-center justify-center">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                  </svg>
                 </div>
               </div>
-              <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-                <div className="h-full bg-white rounded-full transition-all duration-500" style={{ width: `${stats.total > 0 ? (stats.inRoom / stats.total) * 100 : 0}%` }}></div>
+            </div>
+
+            <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl p-6 transform hover:scale-105 transition-all">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-500 text-sm">Avec visites</p>
+                  <p className="text-3xl font-bold text-purple-600 mt-2">{patientStats.hasVisits}</p>
+                </div>
+                <div className="w-14 h-14 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Finished Card */}
-          <div className="group relative bg-gradient-to-br from-emerald-500 to-teal-600 rounded-3xl p-6 shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500"></div>
-            <div className="relative">
-              <div className="flex items-center justify-between mb-4">
-                <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center group-hover:rotate-12 transition-transform">
-                  <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          {/* Patient Board - Changed from PatientList */}
+          <PatientBoard 
+            patients={patients} 
+            loading={patientsLoading}
+            onRefresh={loadPatients}
+            onShowToast={showToast}
+          />
+        </div>
+      ) : (
+        /* Visits Overview Content */
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Visit Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl p-6 transform hover:scale-105 transition-all">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-500 text-sm">Total visites</p>
+                  <p className="text-3xl font-bold text-gray-800 mt-2">{stats.total}</p>
+                </div>
+                <div className="w-14 h-14 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-2xl flex items-center justify-center">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl p-6 transform hover:scale-105 transition-all">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-500 text-sm">En attente</p>
+                  <p className="text-3xl font-bold text-amber-600 mt-2">{stats.waiting}</p>
+                </div>
+                <div className="w-14 h-14 bg-gradient-to-r from-amber-500 to-orange-500 rounded-2xl flex items-center justify-center">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl p-6 transform hover:scale-105 transition-all">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-500 text-sm">En consultation</p>
+                  <p className="text-3xl font-bold text-indigo-600 mt-2">{stats.inRoom}</p>
+                </div>
+                <div className="w-14 h-14 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-2xl flex items-center justify-center">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl p-6 transform hover:scale-105 transition-all">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-500 text-sm">Terminées</p>
+                  <div className="flex items-baseline gap-2">
+                    <p className="text-3xl font-bold text-emerald-600">{stats.finished}</p>
+                    <span className="text-sm text-gray-500">({completionRate}%)</span>
+                  </div>
+                </div>
+                <div className="w-14 h-14 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl flex items-center justify-center">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <div className="text-right">
-                  <p className="text-teal-100 text-sm font-medium">Terminées</p>
-                  <p className="text-4xl font-bold text-white">{stats.finished}</p>
-                </div>
               </div>
-              <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-                <div className="h-full bg-white rounded-full transition-all duration-500" style={{ width: `${completionRate}%` }}></div>
-              </div>
-              <p className="text-teal-100 text-xs mt-2 font-medium">{completionRate}% complétés</p>
             </div>
           </div>
+          
+          {/* Visit Board */}
+          <VisitBoard visits={visits} onRefresh={loadVisits} onShowToast={showToast} />
         </div>
+      )}
 
-        {/* Visit Board */}
-        <VisitBoard visits={visits} onRefresh={loadVisits} onShowToast={showToast} />
-      </div>
-
-      {/* Form Modal */}
+      {/* Form Modal - Conditional rendering for VisitForm or PatientForm */}
       {showForm && (
-        <VisitForm
-          onClose={() => setShowForm(false)}
-          onSuccess={() => {
-            setShowForm(false);
-            loadVisits();
-            showToast('✅ Visite créée avec succès !');
-          }}
-        />
+        isPatientsView ? (
+          <PatientForm
+            onClose={() => setShowForm(false)}
+            onSuccess={() => {
+              setShowForm(false);
+              loadPatients();
+              showToast('✅ Patient créé avec succès !');
+            }}
+          />
+        ) : (
+          <VisitForm
+            onClose={() => setShowForm(false)}
+            onSuccess={() => {
+              setShowForm(false);
+              loadVisits();
+              showToast('✅ Visite créée avec succès !');
+            }}
+          />
+        )
       )}
 
       {/* Toast Notification */}

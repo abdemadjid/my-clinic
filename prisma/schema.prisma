@@ -17,18 +17,38 @@ model Admin {
   @@map("admins")
 }
 
+model Patient {
+  id        String   @id @default(uuid())
+  name      String
+  phone     String   @unique
+  email     String?
+  birthDate DateTime?
+  gender    String?
+  address   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  visits    Visit[]
+  
+  @@map("patients")
+}
+
 model Visit {
   id           String      @id @default(uuid())
   queueNumber  Int
-  patientName  String
-  patientPhone String
+  patientId    String
+  patientName  String      // Denormalized for easier queries
+  patientPhone String      // Denormalized for easier queries
   status       VisitStatus @default(WAITING)
   reason       String?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   
+  patient      Patient     @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  
   @@index([status])
   @@index([createdAt])
+  @@index([patientId])
   @@map("visits")
 }
 
